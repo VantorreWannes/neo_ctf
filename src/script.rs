@@ -1,11 +1,13 @@
 use regex::bytes::Regex;
+use std::io::{ErrorKind, Read};
 use std::{
     fs::OpenOptions,
-    io::{self, Read, Write},
+    io::{self, Write},
     path::Path,
     process::{Command, Output},
 };
 
+#[allow(dead_code)]
 fn netcat_command() -> io::Result<Output> {
     Command::new("nc")
         .arg("neo.challenges.cybersecuritychallenge.be")
@@ -13,66 +15,28 @@ fn netcat_command() -> io::Result<Output> {
         .output()
 }
 
-pub fn write_bytes_to_file(bytes: Vec<u8>, path: &Path) -> io::Result<()> {
-    let bytes = netcat_command()?.stdout;
+pub fn read_bytes_from_file(path: &Path) -> Result<Vec<u8>, io::Error> {
+    let mut file = OpenOptions::new().read(true).open(path)?;
+    let mut buffer = Vec::with_capacity(file.metadata()?.len() as usize);
+    file.read_to_end(&mut buffer)?;
+    Ok(buffer)
+}
+
+pub fn write_bytes_to_file(bytes: &[u8], path: &Path) -> Result<(), io::Error> {
     let mut file = OpenOptions::new().create(true).write(true).open(path)?;
-    file.write_all(&bytes)?;
+    file.write_all(bytes)?;
     Ok(())
 }
 
-pub fn remove_resets() -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(&Path::new("raw_bytes.bin"))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    let re = Regex::new(r"\x1B\[\d+;\d+H").unwrap();
-    let output = re.replace_all(&bytes, b"");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&Path::new("no-returns.bin"))?;
-    file.write_all(&output).unwrap();
-    println!("{}", String::from_utf8(output.to_vec()).unwrap());
-    Ok(())
-}
-
-pub fn filter() -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(&Path::new("no-returns.bin"))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    let re: Regex = Regex::new(r"(\x1B\[(\x39\x32|\x30|\x39\x31)m)+(?<letter>.)").unwrap();
-    let output = re.captures_iter(&bytes);
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&Path::new("new.bin"))?;
-    //file.write_all(&output).unwrap();
-    for i in output {
-        file.write_all(&i["letter"]).unwrap();
-        println!("{}", String::from_utf8(i[0].to_vec()).unwrap());
-    }
-    Ok(())
-}
-
-pub fn run() -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(&Path::new("raw_bytes.bin"))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+pub fn run() -> Result<(), io::Error> {
+    //let raw_bytes = netcat_command()?.stdout;
+    let raw_bytes = read_bytes_from_file(Path::new("files/raw_bytes.bin"))?;
     let re: Regex = Regex::new(r"\x1B\[\d+;\d+H(\x1B\[(\x39\x32)m)+(?<letter>.)").unwrap();
-    let output = re.captures_iter(&bytes);
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&Path::new("green_with_escapes.bin"))?;
-    //file.write_all(&output).unwrap();
-    for i in output {
-        file.write_all(&i["letter"]).unwrap();
-        println!("{}", String::from_utf8(i[0].to_vec()).unwrap());
-    }
+    let all_captures = re.captures_iter(&raw_bytes);
+    let output_bytes = all_captures
+        .flat_map(|capture| capture[0].to_vec())
+        .collect::<Vec<u8>>();
+    write_bytes_to_file(&output_bytes, Path::new("files/output.bin"))?;
+    println!("{}", String::from_utf8(output_bytes.to_vec()).map_err(|_| ErrorKind::InvalidData)?);
     Ok(())
 }
